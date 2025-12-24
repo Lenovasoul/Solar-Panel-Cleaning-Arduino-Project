@@ -1,0 +1,78 @@
+%bookkeeping 
+clear; clc; clear all;
+a = arduino("COM3","Uno");
+redPin = 'D6';
+greenPin = 'D9';
+bluePin = 'D10';
+
+[daysRaw, power] = readvars(""); %Add Your File Here 
+
+%Splits the data into separate days based on when power jumps from 0 to something
+dayAverages = []; %used to store the average power for each day
+dayIndices = []; %used to store the day numbers for plotting
+currentDayValues = []; %keeps a list of readings for the current day
+
+for i = 1:length(power)
+    
+    currentDayValues(end+1) = power(i); %adds the current reading to the list for the day
+
+    %checks if the next reading starts a new day
+    if i < length(power) %makes sure we do not go out of bounds
+        if power(i) == 0 && power(i+1) ~= 0 %finds the moment a day begins
+            dayAverages(end+1) = mean(currentDayValues); %gets the average for that day
+            dayIndices(end+1) = length(dayAverages); %stores the day number
+            currentDayValues = []; %resets for the next day
+        end
+    end
+end
+
+%the threshold values to decide LED color
+highThresh = 5.2;
+lowThresh = 3.2;
+
+LEDstatus = strings(length(dayAverages),1); %keeps track of which color was chosen
+firstClean = []; %used to store the first day that needs cleaning
+
+%Goes through each day and chooses the LED color based on the power output
+for d = 1:length(dayAverages)
+    avg = dayAverages(d); %gets the average for the current day
+
+    if avg > highThresh %checks if the output is high
+        writePWMVoltage(a, redPin, 0)
+        writePWMVoltage(a, greenPin, 1)
+        writePWMVoltage(a, bluePin, 0)
+
+    elseif avg >= lowThresh && avg <= highThresh %moderate day
+        writePWMVoltage(a, redPin, 1)
+        writePWMVoltage(a, greenPin, 1)
+        writePWMVoltage(a, bluePin, 0)
+
+    else %low day
+        writePWMVoltage(a, redPin, 1)
+        writePWMVoltage(a, greenPin, 0)
+        writePWMVoltage(a, bluePin, 0)
+    end
+
+    %finds the first day that falls below the needed output
+    if isempty(firstClean) && avg < lowThresh
+        firstClean = d;
+    end
+    tic %starts a timer
+    pause(2) %waits one second
+    toc %shows how much time passed
+end
+
+%plots all of the daily averages
+figure
+plot(dayIndices, dayAverages, 'w*')
+xlabel('Day')
+ylabel('Daily Avg Power (kW)')
+title('Daily Solar Power Output whilst at H-DARB')
+grid on
+
+%prints out the message about the panels cleaning needs
+if isempty(firstClean)
+    disp('Panels are sustaining the crew without any cleaning thus far.')
+else
+    fprintf('Crew must clean the panels on Day %d since the average dipped below %.1f kW\n', firstClean, lowThresh)
+end
